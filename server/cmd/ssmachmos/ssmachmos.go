@@ -1,3 +1,5 @@
+// Package main is where the ssmachmos program starts.
+// "ssmachmos serve" runs the gateway; any other command runs the CLI, which talks to the running gateway.
 package main
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/jukuly/ss_machmos/server/internal/server"
 )
 
+// serve starts the gateway: loads saved data, turns on Bluetooth, then waits for CLI/GUI commands.
 func serve() {
 	var err error
 	// if the server is already running, quit
@@ -27,12 +30,15 @@ func serve() {
 
 	var gateway *model.Gateway = &model.Gateway{}
 	err = model.LoadSensors()
+	// BUG: on a fresh install sensors.json doesn't exist yet, so the gateway refuses to start.
 	if err != nil {
 		out.Logger.Println(err.Error())
 		return
 	}
+	// Errors ignored on purpose: a missing history file is normal on first run.
 	model.LoadSensorHistory()
 	err = model.LoadSettings(gateway, model.GATEWAY_FILE)
+	// Keep going without settings, so the user can still set them with "ssmachmos config".
 	if err != nil {
 		out.Logger.Println("Error loading Gateway settings. Run 'ssmachmos config --id <gateway-id>' and 'ssmachmos config --password <gateway-password>' to set the Gateway settings.")
 	}
@@ -54,9 +60,12 @@ func serve() {
 		out.Logger.Println("Error while initializing server. Is bluetooth enabled?")
 		return
 	}
+	// BUG: api.Start's error is ignored, so if the socket can't open, the gateway quits with no message.
 	api.Start()
 }
 
+// main reads the command typed after "ssmachmos" and runs it.
+// Words starting with "--" are options; the rest are arguments.
 func main() {
 	// the user must provide at least one argument (the command)
 	as := os.Args[1:]
@@ -88,7 +97,8 @@ func main() {
 
 	if as[0] == "serve" {
 		out.InitSyslog()
-		// Daemon attempt
+		// "--no-console" restarts the program in the background, detached from the terminal.
+		// BUG: only checks the first option, so "--no-console" after another option is ignored.
 		if len(options) > 0 && options[0] == "--no-console" {
 			process, err := os.StartProcess(os.Args[0], []string{os.Args[0], "serve"}, &os.ProcAttr{
 				Files: []*os.File{nil, nil, nil},
@@ -124,6 +134,7 @@ func main() {
 		fmt.Println("Error:", err)
 		return
 	}
+	// Print messages from the gateway in the background while the command runs.
 	go cli.Listen(conn)
 	defer conn.Close()
 
