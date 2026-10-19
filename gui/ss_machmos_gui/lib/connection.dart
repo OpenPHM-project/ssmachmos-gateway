@@ -1,3 +1,4 @@
+/// Manages the GUI connection state, backend server lifecycle, and socket communication with the gateway.
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
@@ -12,17 +13,20 @@ enum ConnState { inprogress, failed, connected, disabled }
 
 typedef ConnectionCallback = bool Function(String, String?);
 
+/// Represents gateway configuration settings including credentials and cloud endpoints.
 class Gateway {
   String id;
   String password;
   String httpEndpoint;
   Gateway({required this.id, required this.password, required this.httpEndpoint});
 
+  /// Creates a Gateway instance from a JSON map.
   factory Gateway.fromJson(Map<String, dynamic> json) {
     return Gateway(id: json["id"], password: json["password"], httpEndpoint: json["http_endpoint"]);
   }
 }
 
+/// Tracks the active connection status and metadata for an individual sensor.
 class SensorStatus {
   String name;
   String address;
@@ -31,6 +35,8 @@ class SensorStatus {
   String activity;
 
   SensorStatus(this.name, this.address, this.connected, this._lastSeen, this.activity);
+  
+  /// Creates a SensorStatus instance from a JSON map with default fallbacks.
   factory SensorStatus.fromJson(Map<String, dynamic> ss) {
     return SensorStatus(
       ss['name'] ?? "no name",
@@ -53,6 +59,8 @@ class Connection with ChangeNotifier {
   // Have a way to pass toast notifications to UI
   // gateway notifies when this is pushed to, and AppRoot pops and displays each
   Queue<String> toastQueue = Queue<String>();
+  
+  /// Adds a new notification message to the UI toast queue.
   void showMessage(String message) => toastQueue.add(message);
 
   // State of connection to backend
@@ -95,6 +103,7 @@ class Connection with ChangeNotifier {
   void Function()? onError;
   List<String> logs = [];
 
+  /// Initializes connection state and automatically triggers backend startup.
   Connection() {
     _state = ConnState.disabled;
     _waitingFor = {};
@@ -152,6 +161,7 @@ class Connection with ChangeNotifier {
     return;
   }
 
+  /// Launches the gateway server executable and starts monitoring its log outputs.
   void startServer() {
     // Start process, process dies if duplicate
     // Use Process.runSync to start non-interactively and block
@@ -173,10 +183,12 @@ class Connection with ChangeNotifier {
     });
   }
 
+  /// Sends a termination command to gracefully stop the backend server.
   void stopServer() {
     send("STOP");
   }
 
+  /// Attempts to re-establish a Unix socket connection to the server over multiple retries.
   Future<void> openConnection() async {
     _state = ConnState.inprogress;
 
@@ -209,6 +221,7 @@ class Connection with ChangeNotifier {
     }
   }
 
+  /// Closes the active socket connection and unregisters the logger.
   Future<void> close() async {
     await send("REMOVE-LOGGER");
     if (_socket != null) {
@@ -217,6 +230,7 @@ class Connection with ChangeNotifier {
   }
 
   // FIXME: Move this to a separate file, as an extension?
+  /// Attaches event listeners for general server events, uploads, and sensor data updates.
   void _attachListeners() {
     // Attach ourselves to a feed
     send("ADD-LOGGER");
@@ -299,6 +313,7 @@ class Connection with ChangeNotifier {
     send("LIST-CONNECTED");
   }
 
+  /// Attaches event listeners specifically for Bluetooth sensor pairing workflows.
   void _attachPairingListeners() {
     // Attempted pairing with a sensor already paired
     on("REQUEST-SENSOR-EXISTS", (mac, _) {
@@ -386,6 +401,7 @@ class Connection with ChangeNotifier {
     log("Server event listeners connected");
   }
 
+  /// Enables or disables the gateway's Bluetooth pairing mode.
   void setPairingState(bool enabled) {
     if (enabled) {
       on("PAIR-ENABLE", (_, __) {
@@ -416,6 +432,7 @@ class Connection with ChangeNotifier {
     loadSensors();
   }
 
+  /// Registers a callback triggered when pairing mode is enabled.
   void onPairEnable(ConnectionCallback callback) {}
 
   // Load gateway settings from server
@@ -478,6 +495,7 @@ class Connection with ChangeNotifier {
     setGatewayHttpEndpoint(newgate.httpEndpoint, endpointCalllback);
   }
 
+  /// Tests connectivity and validity of the gateway configuration.
   void testGateway(ConnectionCallback callback) {
     on("TEST-GATEWAY", (a, err) {
       gatewayValid = (err == null);
@@ -503,21 +521,25 @@ class Connection with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Requests a list of currently connected sensors from the server.
   void loadConnectedSensors() {
     send("LIST-CONNECTED");
   }
 
+  /// Refreshes all paired sensors, pairing lists, and connection statuses.
   void loadSensors() async {
     send("LIST");
     send("PAIR-LIST");
     loadConnectedSensors();
   }
 
+  /// Triggers data collection from a specific sensor.
   void collectFromSensor(Sensor sensor) {
     send("COLLECT ${macToString(sensor.mac)}");
   }
 
   // TODO add exceptions
+  /// Unpairs and removes a specific sensor from the gateway.
   void forgetSensor(Sensor sensor, ConnectionCallback callback) {
     on("FORGET", (verb, err) {
       // Clear current sensor
@@ -530,6 +552,7 @@ class Connection with ChangeNotifier {
     send("FORGET ${macToString(sensor.mac)}");
   }
 
+  /// Saves updated configuration settings for a sensor.
   void saveSensor(Sensor sensor, ConnectionCallback callback) {
     on("SET-SENSOR-SETTINGS", (a, b) {
       loadSensors();
@@ -538,6 +561,7 @@ class Connection with ChangeNotifier {
     send("SET-SENSOR-SETTINGS ${sensor.sensorSettingsCommand}");
   }
 
+  /// Resets a sensor's configuration settings back to default values.
   void resetSensor(Sensor sensor, ConnectionCallback callback) {
     on("SET-SENSOR-SETTINGS", (a, b) {
       loadSensors();
@@ -546,6 +570,7 @@ class Connection with ChangeNotifier {
     send("SET-SENSOR-SETTINGS ${macToString(sensor.mac)} auto auto");
   }
 
+  /// Transmits a null-terminated command string across the active socket connection.
   Future<void> send(String message) async {
     if (_socket == null) {
       _state = ConnState.failed;
@@ -571,6 +596,7 @@ class Connection with ChangeNotifier {
     }
   }
 
+  /// Continuously listens for incoming socket data chunks and dispatches responses to waiting callbacks.
   Future<void> listen() async {
     if (_socket != null) {
       _socket!.listen((event) {
@@ -616,6 +642,7 @@ class Connection with ChangeNotifier {
     _waitingFor[command] = callback;
   }
 
+  /// Removes a registered callback for a command prefix.
   void off(String command) {
     _waitingFor.remove(command);
   }
