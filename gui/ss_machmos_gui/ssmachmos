@@ -1,8 +1,16 @@
 #!/usr/bin/env sh
 
-set -e # real slippery definition, but error out for any commands here
-cd ../../server
-go build -o ssmachmos ./cmd/ssmachmos/main.go
+# Dev script: builds the server and runs it in the background, like a systemd service would.
+# The commands are kept below as comments so nothing runs by mistake.
+
+# OUT OF DATE: points to main.go, which was renamed (install.sh builds ssmachmos.go).
+# Check the path before turning this back on.
+# BUG: cd ../../server depends on where the script is run from, not on where the script is.
+
+# set -e # real slippery definition, but error out for any commands here
+# cd ../../server
+# go build -o ssmachmos ./cmd/ssmachmos/main.go
 # simulate a systemd service
-(./ssmachmos "$@" &) &
+# The parentheses start the program in its own shell, so it keeps running after this script ends.
+# (./ssmachmos "$@" &) &
 #go run ./cmd/ssmachmos/main.go "$@"
