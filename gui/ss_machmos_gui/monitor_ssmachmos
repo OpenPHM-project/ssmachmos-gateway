@@ -1,7 +1,12 @@
 #!/usr/bin/env sh
 
+# Follows the system logs for the process identified by the ss_machmos Unix socket.
+
 # find PID of process
 # returns OK:PID:<pid>
+# Find the PID of the process through the ss_machmos socket.
 PID=$(printf "PID\0" | nc -U /tmp/ss_machmos.sock -q 1 | sed -e 's/OK:PID://')
+
 # capture syslog
+# Follows new journal entries for the identified process and includes errors in the output.
 journalctl -f --output=short _PID="$PID" 2>&1

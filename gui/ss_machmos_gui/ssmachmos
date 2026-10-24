@@ -1,8 +1,12 @@
 #!/usr/bin/env sh
 
+# Dev script: builds the server and runs it in the background, like a systemd service would.
+
+# BUG: cd ../../server depends on where the script is run from, not on where the script is.
 set -e # real slippery definition, but error out for any commands here
 cd ../../server
 go build -o ssmachmos ./cmd/ssmachmos/ssmachmos.go
 # simulate a systemd service
+# The parentheses start the program in its own shell, so it keeps running after this script ends.
 (./ssmachmos "$@" &) &
-#go run ./cmd/ssmachmos/main.go "$@"
+#go run ./cmd/ssmachmos/ssmachmos.go "$@"

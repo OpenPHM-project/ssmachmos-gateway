@@ -1,14 +1,23 @@
+// Help tab of the gateway app. It explains the app and each setting, and has
+// links that scroll to each section. It also holds the heading widgets and the help button.
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+/// Shows the help page: an overview of the app and what each setting does.
 class Help extends StatelessWidget {
+  // This controller is not passed to the SingleChildScrollView below, so it looks unused.
+  // It is kept because another file may still read Help.controller.
   final ScrollController controller = ScrollController();
+
+  // Keys on the section headings. The links in the text use them to scroll to a section.
   final GlobalKey sensorsKey = GlobalKey();
   final GlobalKey pairingKey = GlobalKey();
   final GlobalKey sensorPropertiesKey = GlobalKey();
   final GlobalKey gatewayKey = GlobalKey();
   final GlobalKey logsKey = GlobalKey();
 
+  // Keys passed in so that HelpButtons on other screens can jump to these sections.
   final GlobalKey gatewayIdKey;
   final GlobalKey httpEndpointKey;
   final GlobalKey sensorTypesKey;
@@ -22,7 +31,9 @@ class Help extends StatelessWidget {
     required this.wakeUpIntervalKey,
   });
 
+  /// Scrolls the page so the widget with this key is visible.
   void scrollToKey(GlobalKey key) {
+    // The context is null if the widget is not on screen, so do nothing then.
     final context = key.currentContext;
     if (context != null) {
       Scrollable.ensureVisible(context,
@@ -30,8 +41,11 @@ class Help extends StatelessWidget {
     }
   }
 
+  /// Builds the whole help page as one scrolling column of text.
   @override
   Widget build(BuildContext context) {
+    // SingleChildScrollView builds every child at once, so each section key
+    // always has a context and scrollToKey works.
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -42,10 +56,12 @@ class Help extends StatelessWidget {
               "Overview",
               first: true,
             ),
+            // RichText is used here so words inside the paragraph can be tappable links.
             RichText(
               text: TextSpan(
                 style: DefaultTextStyle.of(context).style,
                 children: [
+                  // BUG: typo in the text below: "it it" should be "it is".
                   const TextSpan(
                     text:
                         "This application serves as the gateway for SS MachMoS. It allows the sensors to transmit their information to a cloud platform like openMachMoS. "
@@ -96,6 +112,7 @@ class Help extends StatelessWidget {
                     "Pairing",
                     onPressed: () => scrollToKey(pairingKey),
                   ),
+                  // BUG: typo in the text below: "ajusted" should be "adjusted".
                   const TextSpan(
                     text:
                         " section. A sensor's settings can be ajusted by selecting it in the dropdown menu to the left of the page. "
@@ -113,6 +130,7 @@ class Help extends StatelessWidget {
               "Pairing",
               key: pairingKey,
             ),
+            // BUG: typo "comunicate" and a missing full stop after "Discover Sensors".
             const Text(
               "The sensors connect to the gateway via Bluetooth. For a sensor to be able to comunicate with the gateway, it needs to be paired. "
               "To pair a sensor, the user should first turn pairing on by clicking on the toggle switch next to \"Discover Sensors\" "
@@ -124,6 +142,7 @@ class Help extends StatelessWidget {
               "Sensor Properties",
               key: sensorPropertiesKey,
             ),
+            // The indent shows these headings belong under "Sensor Properties".
             Padding(
               padding: const EdgeInsets.only(left: 16),
               child: Column(
@@ -156,6 +175,7 @@ class Help extends StatelessWidget {
                     "Wake-Up Interval",
                     key: wakeUpIntervalKey,
                   ),
+                  // BUG: typo in the text below: "Offest" should be "Offset".
                   const Text(
                     "The duration between measurements (seconds). The server will synchronize the sensors to try to make them wake-up not at the same time. "
                     "To control this, the user can set the \"Wake-Up Interval Max Offset\" field to specify what is the maximum deviation from the next expected wake-up that "
@@ -167,6 +187,7 @@ class Help extends StatelessWidget {
                   const H3(
                     "Measurement Specific Settings",
                   ),
+                  // A second indent for the settings that exist per measurement type.
                   const Padding(
                     padding: EdgeInsets.only(left: 16),
                     child: Column(
@@ -182,6 +203,7 @@ class Help extends StatelessWidget {
                         H4(
                           "Sampling Frequency",
                         ),
+                        // BUG: typo in the text below: "samples per seconds" should be "samples per second".
                         Text(
                           "The sampling frequency of the measurements taken (samples per seconds). Not applicable for temperature measurements.",
                         ),
@@ -214,6 +236,9 @@ class Help extends StatelessWidget {
               "HTTP Endpoint",
               key: httpEndpointKey,
             ),
+            // The example request below is shown as plain text, so the \n and spaces keep its layout.
+            // BUG: the JSON example has no commas between fields, so it is not valid JSON.
+            // BUG: the key "gateway_passord" looks like a typo for "gateway_password". Check the server code.
             const Text(
               "This is the endpoint to which the data will be sent. By default, it is set to send to the openMachMoS cloud platform. "
               "If, when a sensor sends its data to the server, the server is not connected to the internet or any error occurs in the data transmission to the cloud, "
@@ -249,12 +274,15 @@ class Help extends StatelessWidget {
   }
 }
 
+/// Shows a large section heading (size 24).
 class H1 extends StatelessWidget {
   final String text;
+  // first removes the top gap, so the first heading sits flush with the page padding.
   final bool first;
 
   const H1(this.text, {super.key, this.first = false});
 
+  /// Builds the heading text with space above and below it.
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -270,12 +298,15 @@ class H1 extends StatelessWidget {
   }
 }
 
+/// Shows a section heading (size 20), one level below H1.
 class H2 extends StatelessWidget {
   final String text;
+  // first removes the top gap, so the heading sits right under its parent heading.
   final bool first;
 
   const H2(this.text, {super.key, this.first = false});
 
+  /// Builds the heading text with space above and below it.
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -291,12 +322,15 @@ class H2 extends StatelessWidget {
   }
 }
 
+/// Shows a small heading (size 16), one level below H2.
 class H3 extends StatelessWidget {
   final String text;
+  // first removes the top gap, so the heading sits right under its parent heading.
   final bool first;
 
   const H3(this.text, {super.key, this.first = false});
 
+  /// Builds the heading text with space above and below it.
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -312,12 +346,15 @@ class H3 extends StatelessWidget {
   }
 }
 
+/// Shows the smallest heading (size 14), one level below H3.
 class H4 extends StatelessWidget {
   final String text;
+  // first removes the top gap, so the heading sits right under its parent heading.
   final bool first;
 
   const H4(this.text, {super.key, this.first = false});
 
+  /// Builds the heading text with space above and below it.
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -333,43 +370,58 @@ class H4 extends StatelessWidget {
   }
 }
 
+/// Makes a blue, underlined piece of text that calls onPressed when tapped.
+// BUG: the TapGestureRecognizer is never disposed, which can leak memory.
 TextSpan link(String text, {required void Function() onPressed}) {
   return TextSpan(
     text: text,
     style: const TextStyle(
+      // Pure blue so the text looks like a link.
       color: Color.fromARGB(255, 0, 0, 255),
       fontWeight: FontWeight.bold,
       decoration: TextDecoration.underline,
       decorationColor: Color.fromARGB(255, 0, 0, 255),
     ),
+    // TextSpan has no onTap, so a recognizer is needed to catch the tap.
     recognizer: TapGestureRecognizer()..onTap = onPressed,
   );
 }
 
+/// Shows a small help icon that opens the Help tab and scrolls to one section.
 class HelpButton extends StatelessWidget {
   final TabController tabController;
+  // The key of the section to scroll to, for example Help.gatewayIdKey.
   final GlobalKey page;
 
   const HelpButton(
       {super.key, required this.tabController, required this.page});
 
+  /// Builds the icon button that switches to the Help tab and scrolls to the section.
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: () async {
+        // 3 is the index of the Help tab (Sensors, Gateway, Logs, Help).
+        // This breaks if the tab order changes.
         tabController.animateTo(3);
 
+        // The Help page may not be built yet right after the tab switch,
+        // so wait until the section's context exists before scrolling.
+        // BUG: this loop has no time limit and runs forever if the key is never attached.
         BuildContext? context = page.currentContext;
         while (context == null) {
+          // 10 ms: short enough to feel instant, long enough not to freeze the app.
           await Future.delayed(const Duration(milliseconds: 10));
           context = page.currentContext;
         }
+        // The widget may have been removed while we waited.
         if (context.mounted) {
           Scrollable.ensureVisible(context,
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut);
         }
       },
+      // Small icon with no extra padding, so it fits next to other settings.
       iconSize: 20,
       constraints: const BoxConstraints(),
       padding: EdgeInsets.zero,
