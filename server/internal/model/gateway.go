@@ -1,3 +1,5 @@
+// Package model stores what the gateway remembers.
+// This file holds the gateway's own settings (id, password, cloud address) and saves them to gateway.json.
 package model
 
 import (
@@ -11,23 +13,30 @@ import (
 	"path"
 )
 
+// GATEWAY_FILE is the file that stores the gateway's own settings.
 const GATEWAY_FILE = "gateway.json"
 
+// Gateway is the gateway's own settings: its login for the cloud and the cloud's address.
 type Gateway struct {
-	Id               string    `json:"id"`
-	Password         string    `json:"password"`
+	Id       string `json:"id"`
+	Password string `json:"password"` // BUG: saved as plain text in gateway.json.
+	// OUT OF DATE: DataCharUUID and SettingsCharUUID are from the old pairing design and are no longer used.
 	DataCharUUID     [4]uint32 `json:"data_char_uuid"`
 	SettingsCharUUID [4]uint32 `json:"settings_char_uuid"`
 	HTTPEndpoint     string    `json:"http_endpoint"`
-	AuthError        bool      `json:"-"` // memory only flag for error reporting, special tag to omit from json
+	// OUT OF DATE: AuthError is never set or read anywhere.
+	AuthError bool `json:"-"` // memory only flag for error reporting, special tag to omit from json
 }
 
+// RequestBody is the JSON sent to the cloud: the gateway's login plus the measurements.
 type RequestBody struct {
 	GatewayId       string                   `json:"gateway_id"`
 	GatewayPassword string                   `json:"gateway_password"`
 	Measurements    []map[string]interface{} `json:"measurements"`
 }
 
+// LoadSettings reads the gateway's settings from fileName into gateway.
+// BUG: "gateway = &Gateway{}" only changes the local copy, so it doesn't reset anything on error.
 func LoadSettings(gateway *Gateway, fileName string) error {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
@@ -52,21 +61,28 @@ func LoadSettings(gateway *Gateway, fileName string) error {
 	return nil
 }
 
+// SetGatewayHTTPEndpoint changes the cloud address the gateway uploads to, and saves it.
 func SetGatewayHTTPEndpoint(gateway *Gateway, endpoint string) error {
 	gateway.HTTPEndpoint = endpoint
 	return saveSettings(gateway, GATEWAY_FILE)
 }
 
+// SetGatewayId changes the gateway's id used to log in to the cloud, and saves it.
 func SetGatewayId(gateway *Gateway, id string) error {
 	gateway.Id = id
 	return saveSettings(gateway, GATEWAY_FILE)
 }
 
+// SetGatewayPassword changes the gateway's cloud password, and saves it.
 func SetGatewayPassword(gateway *Gateway, password string) error {
 	gateway.Password = password
 	return saveSettings(gateway, GATEWAY_FILE)
 }
 
+// TestGateway checks the cloud accepts the gateway's login by sending an
+// upload with no measurements. It returns nil if the cloud answers OK.
+// BUG: on success, resp.Body is never closed, which leaks a connection.
+// BUG: http.Post has no timeout, so this can hang forever if the cloud doesn't answer.
 func TestGateway(gateway *Gateway) error {
 	data, _ := json.Marshal(RequestBody{
 		GatewayId:       gateway.Id,
@@ -80,47 +96,54 @@ func TestGateway(gateway *Gateway) error {
 	if err != nil {
 		return err
 	}
+	// Note: this "bytes" variable hides the bytes package from here on.
 	bytes, _ := io.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	return errors.New(fmt.Sprintf("HTTP Status %d - %s", resp.StatusCode, string(bytes)))
 }
 
-func GetDataCharUUID(gateway *Gateway) ([4]uint32, error) {
-	if gateway == nil {
-		return [4]uint32{}, errors.New("gateway is nil")
-	}
-	if gateway.DataCharUUID == [4]uint32{0, 0, 0, 0} {
-		var err error
-		gateway.DataCharUUID, err = GenerateUUID()
-		if err != nil {
-			return [4]uint32{}, err
-		}
-		err = saveSettings(gateway, GATEWAY_FILE)
-		if err != nil {
-			return [4]uint32{}, err
-		}
-	}
-	return gateway.DataCharUUID, nil
-}
+// OUT OF DATE: GetDataCharUUID is from the old pairing design and is not called anywhere.
+// It returned the gateway's data UUID, creating and saving one if it was empty.
+// func GetDataCharUUID(gateway *Gateway) ([4]uint32, error) {
+// 	if gateway == nil {
+// 		return [4]uint32{}, errors.New("gateway is nil")
+// 	}
+// 	if gateway.DataCharUUID == [4]uint32{0, 0, 0, 0} {
+// 		var err error
+// 		gateway.DataCharUUID, err = GenerateUUID()
+// 		if err != nil {
+// 			return [4]uint32{}, err
+// 		}
+// 		err = saveSettings(gateway, GATEWAY_FILE)
+// 		if err != nil {
+// 			return [4]uint32{}, err
+// 		}
+// 	}
+// 	return gateway.DataCharUUID, nil
+// }
 
-func GetSettingsCharUUID(gateway *Gateway) ([4]uint32, error) {
-	if gateway == nil {
-		return [4]uint32{}, errors.New("gateway is nil")
-	}
-	if gateway.SettingsCharUUID == [4]uint32{0, 0, 0, 0} {
-		var err error
-		gateway.SettingsCharUUID, err = GenerateUUID()
-		if err != nil {
-			return [4]uint32{}, err
-		}
-		err = saveSettings(gateway, GATEWAY_FILE)
-		if err != nil {
-			return [4]uint32{}, err
-		}
-	}
-	return gateway.SettingsCharUUID, nil
-}
+// OUT OF DATE: GetSettingsCharUUID is from the old pairing design and is not called anywhere.
+// It returned the gateway's settings UUID, creating and saving one if it was empty.
+// func GetSettingsCharUUID(gateway *Gateway) ([4]uint32, error) {
+// 	if gateway == nil {
+// 		return [4]uint32{}, errors.New("gateway is nil")
+// 	}
+// 	if gateway.SettingsCharUUID == [4]uint32{0, 0, 0, 0} {
+// 		var err error
+// 		gateway.SettingsCharUUID, err = GenerateUUID()
+// 		if err != nil {
+// 			return [4]uint32{}, err
+// 		}
+// 		err = saveSettings(gateway, GATEWAY_FILE)
+// 		if err != nil {
+// 			return [4]uint32{}, err
+// 		}
+// 	}
+// 	return gateway.SettingsCharUUID, nil
+// }
 
+// saveSettings writes the gateway's settings to fileName in the config folder.
+// BUG: 0777 lets any user on the computer read the password; 0600 would be safer.
 func saveSettings(gateway *Gateway, fileName string) error {
 	if gateway == nil {
 		return errors.New("gateway is nil")
