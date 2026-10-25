@@ -13,7 +13,7 @@ The gateway reads an **8-byte header** describing the incoming measurement data.
 
 The **measurement payload** contains the actual sensor readings as bytes. For example, 100 vibration samples × 6 bytes = **600 payload bytes**, excluding the header.
 
-## 2. Sensor Payloads
+## 2. Measurement/Sensor Payloads
 
 ### Vibration
 
