@@ -53,9 +53,10 @@ type Transmission struct {
 // Coordinates access to the shared transmission map.
 // RLock allows readers; Lock provides exclusive access for changes.
 // TODO: Some accesses below are not protected by this mutex.
-var transmissionMutex sync.RWMutex 
-		// https://go.dev/doc/faq#atomic_maps
-		// TODO: See if another package like concurrent-map might help here
+var transmissionMutex sync.RWMutex
+
+// https://go.dev/doc/faq#atomic_maps
+// TODO: See if another package like concurrent-map might help here
 
 // Maps each device's MAC address to its current transmission.
 // Only one transmission per device can be tracked at a time.
@@ -72,7 +73,6 @@ func startWatchdog() {
 		// Check for idle transmissions approximately once per second.
 		time.Sleep(1 * time.Second)
 		now := time.Now().Unix()
-
 
 		transmissionMutex.RLock()
 		for mac, transmission := range transmissions {
@@ -240,8 +240,10 @@ func handleData(dataType string, _ bluetooth.Connection, address string, _mtu in
 		measurements = handleTemperatureData(transmitData)
 	} else if dataType == "audio" {
 		measurements = handleAudioData(transmitData)
+	} else if dataType == "flux" {
+		measurements = handleFluxData(transmitData)
 	} else {
-		// Other types, including flux, have no conversion branch here.
+		// Other type have no conversion branch here.
 		out.Logger.Println("unknown data type", dataType)
 		return
 	}
@@ -485,4 +487,38 @@ func handleDebugData(address string, value []byte) {
 			bufferCache[address] = value
 		}
 	}
+}
+
+// WIP -> Conversion formula is missing
+func handleFluxData(transmitData Transmission) []map[string]any {
+	measurements := []map[string]any{}
+
+	rawData := transmitData.packets
+
+	if len(rawData) == 0 || (len(rawData)%2 != 0) {
+		out.Logger.Println("Flux data is missing or incomplete")
+		return measurements
+	}
+
+	sampleCount := len(rawData) / 2
+
+	decodedReadings := make([]int16, sampleCount)
+
+	for i := 0; i < len(rawData); i += 2 {
+		// little-endian byte order still needs confirmation
+		decodedReadings[i/2] = int16(rawData[i+1])<<8 | int16(rawData[i])
+
+	}
+	measurements = append(measurements,
+		map[string]any{
+			"sensor_id":          model.MacToString(transmitData.macAddress),
+			"time":               transmitData.timestamp,
+			"measurement_type":   transmitData.dataType,
+			"sampling_frequency": transmitData.samplingFrequency,
+
+			// These are raw flux ADC counts; conversion to mT is pending
+			"raw_data": decodedReadings,
+		},
+	)
+	return measurements
 }
