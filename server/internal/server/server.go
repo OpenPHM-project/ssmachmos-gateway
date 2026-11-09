@@ -322,6 +322,9 @@ func Init(g *model.Gateway) error {
 	// Run the idle-transmission checks concurrently in a background goroutine.
 	go startWatchdog()
 
+	// Every 5 minutes, retry uploading files left in unsent_data.
+	go retryUnsentLoop()
+
 	return nil
 }
 
