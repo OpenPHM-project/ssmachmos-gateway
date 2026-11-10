@@ -85,16 +85,11 @@ func ConnectedDevices() []SensorStatus {
 	return devices
 }
 
-// If device is already written down
 func sensorExists(MAC [6]byte) *model.Sensor {
-	for _, sens := range model.Sensors {
-		for m := range MAC {
-			if MAC[m] != sens.Mac[m] {
-				// Get next sensor
-				break
-			}
-			// Exact match, early out with true
-			return &sens
+	for i := range model.Sensors {
+		// Compare the whole MAC address, not just the first byte
+		if model.Sensors[i].Mac == MAC {
+			return &model.Sensors[i]
 		}
 	}
 	// No sensors matched, false
