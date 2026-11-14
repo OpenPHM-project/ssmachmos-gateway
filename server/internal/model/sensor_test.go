@@ -18,3 +18,18 @@ func TestVerify(t *testing.T) {
 	}
 
 }
+
+func TestLoadSensorsFirstRun(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	err := LoadSensors()
+
+	if err != nil {
+		t.Fatal("expected no error, got", err)
+	}
+
+	if len(Sensors) != 0 {
+		t.Fatal("expected sensor number 0, but got", len(Sensors))
+	}
+
+}
