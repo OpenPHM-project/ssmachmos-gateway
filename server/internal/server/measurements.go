@@ -77,6 +77,17 @@ func archivedDataDir() string {
 	return dir
 }
 
+// Creates the bad_data directory if needed and returns its path.
+// This directory holds unsent files that aren't valid JSON, so they stop being retried.
+func badDataDir() string {
+	dir := path.Join(dataDir(), "/bad_data/")
+	err := os.MkdirAll(dir, dirPermCode)
+	if err != nil {
+		out.Logger.Panic(err.Error())
+	}
+	return dir
+}
+
 // Creates the debug_data directory under the temporary directory if needed
 // and returns its path.
 func debugDataDir() string {
@@ -143,10 +154,18 @@ func sendMeasurements(jsonData []byte, gateway *model.Gateway) (*http.Response, 
 	return resp, err
 }
 
-// Records an unsent upload, notifies the GUI, and saves the measurement JSON
-// for a later retry. Uses the supplied timestamp to name the file.
-// The in-memory record and notification occur before the file write is attempted.
+// Saves the measurement JSON for a later retry, then records the unsent upload
+// and notifies the GUI. Uses the supplied timestamp to name the file.
+// If the file can't be written (e.g. disk full), returns the error and records nothing.
 func saveUnsentMeasurements(data []byte, timestamp time.Time) error {
+
+	err := os.WriteFile(path.Join(unsentDataDir(), timestamp.String()+".json"), data, filePermCode)
+
+	if err != nil {
+
+		return err
+	}
+
 	unsentData = append(unsentData, UnsentDataError{
 		//Reason: "",
 		LastAttemptedUpload: timestamp,
@@ -154,7 +173,8 @@ func saveUnsentMeasurements(data []byte, timestamp time.Time) error {
 
 	// Notify the GUI that measurements could not be uploaded.
 	out.Broadcast("UPLOAD-FAILED")
-	return os.WriteFile(path.Join(unsentDataDir(), timestamp.String()+".json"), data, filePermCode)
+
+	return nil
 }
 
 // Saves an archived copy of the measurements in sent_data,
@@ -197,6 +217,20 @@ func sendUnsentMeasurements() {
 		if err != nil {
 			out.Logger.Println("Error:", err) // couldn't read it log and go to the next file
 			continue
+		}
+
+		if !json.Valid(data) {
+			oldPath := path.Join(unsentDataDir(), file.Name())
+			newPath := path.Join(badDataDir(), file.Name())
+			err := os.Rename(oldPath, newPath)
+
+			if err != nil {
+				out.Logger.Println("Error:", err)
+			} else {
+				out.Logger.Println("Invalid JSON, moved to bad_data:", file.Name())
+			}
+			continue
+
 		}
 
 		resp, err := sendMeasurements(data, Gateway) // try to upload contents.
