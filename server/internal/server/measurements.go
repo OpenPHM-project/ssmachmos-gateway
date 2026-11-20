@@ -192,26 +192,43 @@ func sendUnsentMeasurements() {
 	}
 
 	// Read and attempt to upload each saved measurement file.
-	for _, file := range files {
-		data, err := os.ReadFile(path.Join(unsentDataDir(), file.Name()))
+	for _, file := range files { // for each file (the _ throws away the index)
+		data, err := os.ReadFile(path.Join(unsentDataDir(), file.Name())) // Reads file's contents
 		if err != nil {
-			out.Logger.Println("Error:", err)
+			out.Logger.Println("Error:", err) // couldn't read it log and go to the next file
 			continue
 		}
 
-		resp, err := sendMeasurements(data, Gateway)
+		resp, err := sendMeasurements(data, Gateway) // try to upload contents.
 		if err != nil {
-			out.Logger.Println("Error:", err)
+			out.Logger.Println("Error:", err) // upload failed the file stays for retry
 			continue
 		}
 
-		// After HTTP 200 OK, move the original file to sent_data for debugging.
-		// sendMeasurements also saves a separate archived copy with a new timestamp.
-		// The result of this move is currently not checked.
-		if resp.StatusCode == 200 {
-			os.Rename(path.Join(unsentDataDir(), file.Name()), path.Join(archivedDataDir(), file.Name()))
+		// Upload worked: move the file from unsent_data to sent_data.
+		// (sendMeasurements also saves its own archived copy with a new timestamp.)
+		if resp.StatusCode == http.StatusOK {
+			oldPath := path.Join(unsentDataDir(), file.Name())   // where the file is now, in unsent data
+			newPath := path.Join(archivedDataDir(), file.Name()) // where the file should go, in sent data
+
+			err := os.Rename(oldPath, newPath) // move the file, if that fails err holds the reason
+			if err != nil {
+				out.Logger.Println("Error:", err) // if there is error write it to the log
+			}
 		}
 	}
+
+	remaining, err := os.ReadDir(unsentDataDir())
+
+	if err != nil {
+		out.Logger.Println("Error:", err) // if there is error write it to the log
+		return
+	}
+
+	if len(remaining) == 0 {
+		unsentData = []UnsentDataError{}
+	}
+
 }
 
 // Converts a raw MachMo temperature reading into degrees Celsius.
@@ -254,4 +271,15 @@ func parseTemperatureData(data int16) (float64, error) {
 		}
 		return (-B + sqrt) / (2 * A), nil
 	}
+}
+
+// Every 5 minutes, retry uploading files left in unsent_data.
+func retryUnsentLoop() {
+
+	ticker := time.NewTicker(5 * time.Minute)
+
+	for range ticker.C {
+		sendUnsentMeasurements()
+	}
+
 }

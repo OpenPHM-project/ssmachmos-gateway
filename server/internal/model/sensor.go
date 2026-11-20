@@ -92,20 +92,21 @@ func (sensor *Sensor) GetSleepDuration() uint32 {
 }
 
 // Verify checks that the sensor has a name and its recordings fit in its storage.
-// BUG: errors.Join's result is never saved into err, so Verify always returns nil.
 func (sensor *Sensor) Verify() error {
 	var err error = nil
 	if sensor.Name == "" {
-		errors.Join(err, errors.New("Name must not be null"))
+		err = errors.Join(err, errors.New("Name must not be null"))
 	}
 
 	totalDataUsed := 0
+
 	for k, v := range sensor.Settings {
 		thisSize := DATA_SIZE[k] * int(v.SamplingDuration) * int(v.SamplingFrequency)
 		totalDataUsed += thisSize
 	}
+
 	if totalDataUsed > int(sensor.CollectionCapacity) {
-		errors.Join(err, errors.New(fmt.Sprint("Current requested capacity", totalDataUsed, "exceeds maximum capacity", sensor.CollectionCapacity)))
+		err = errors.Join(err, errors.New(fmt.Sprint("Current requested capacity", totalDataUsed, "exceeds maximum capacity", sensor.CollectionCapacity)))
 	}
 
 	return err
