@@ -1,5 +1,3 @@
-// Handles discovering devices, tracking requests, and accepting sensors into the system
-
 package server
 
 import (
@@ -10,22 +8,20 @@ import (
 	"github.com/jukuly/ss_machmos/server/internal/out"
 )
 
-// Stores information about one device requesting pairing 
 type request struct {
-	announcedModel     string // Model reported by the device
-	dataTypes          []string // Measurement types the device supports, e.g. vibration, temperature, audio
-	collectionCapacity uint32 // How much data the device can store in bytes
-	isPaired           bool // Whether the device has been accepted for pairing
-	announcedSensors   bool // Whether the device has announced its sensors/provided its capabilities
+	announcedModel     string
+	dataTypes          []string
+	collectionCapacity uint32
+	isPaired           bool
+	announcedSensors   bool
 }
 
-// Stores information returned for saved sensors, including their connection status and last recorded activity
 type SensorStatus struct {
-	Address   string               `json:"address"` // MAC address of the sensor
-	Name      string               `json:"name"` // Name of the sensor
-	Connected bool                 `json:"connected"` // Whether the sensor is currently connected
-	LastSeen  time.Time            `json:"last_seen"` // When the sensor was last seen
-	Activity  model.SensorActivity `json:"activity"` // The sensor's current activity
+	Address   string               `json:"address"`
+	Name      string               `json:"name"`
+	Connected bool                 `json:"connected"`
+	LastSeen  time.Time            `json:"last_seen"`
+	Activity  model.SensorActivity `json:"activity"`
 }
 
 /*
@@ -33,24 +29,20 @@ type SensorStatus struct {
  * Done here means BLE agent pairs and authenticates
  * and device announced sensors on board
  */
-
-// Tracks pairing across the application
 type pairingState struct {
-	active    bool // Controls whether pairing (Pair()) is enabled or disabled
-	requested map[[6]byte]request // Maps MAC addresses to pending pairing requests
+	active    bool
+	requested map[[6]byte]request
 }
 
 // List of all devices pending pairing.
 // Here this means devices that are connected, but haven't announced capabilities or finished pairing
 var state pairingState
 
-// Enables pairing mode, allowing new devices to be paired with the system
 func EnablePairing() {
 	state.active = true
 	out.Logger.Println("Enabled pairing")
 }
 
-// Disables pairing mode, preventing new devices from being paired with the system
 func DisablePairing() {
 	state.active = false
 	out.Logger.Println("Disabled pairing")
@@ -68,7 +60,7 @@ func ListDevicesPendingPairing() []string {
 	return keys
 }
 
-// Returns each saved sensor’s connection status and last recorded activity
+// Returns a list of MAC addresses connected
 // GUI compares that to the sensors last seen
 func ConnectedDevices() []SensorStatus {
 	var devices []SensorStatus = []SensorStatus{}
@@ -82,7 +74,6 @@ func ConnectedDevices() []SensorStatus {
 				break
 			}
 		}
-		// Add to list of devices with connection status
 		devices = append(devices, SensorStatus{
 			Address:   model.MacToString(sensor.Mac),
 			Name:      sensor.Name,
@@ -97,24 +88,21 @@ func ConnectedDevices() []SensorStatus {
 // Checks if a device with the given MAC address is already saved in the system
 // If the device is already written down, returns the sensor object, otherwise returns nil
 func sensorExists(MAC [6]byte) *model.Sensor {
-	for _, sens := range model.Sensors {
-		for m := range MAC {
-			if MAC[m] != sens.Mac[m] {
-				// Get next sensor
-				break
-			}
-			// Exact match, early out with true
-			return &sens
+	for i := range model.Sensors {
+		// Compare the whole MAC address, not just the first byte
+		if model.Sensors[i].Mac == MAC {
+			return &model.Sensors[i]
 		}
 	}
 	// No sensors matched, false
 	return nil
 }
 
-
-/* Handles a device connection
-Updates activity and broadcasts a connection event for an existing sensor 
-Returns true if the device is new, or false if already saved */
+// Called on device connect
+// if device not paired or saved before, starts pair process
+// and saves to internal state. Does not get written to disk until BLE agent completes pairing.
+// If device is new, returns true
+// If device is already paired, returns false
 func pairDeviceConnected(MAC [6]byte) bool {
 	// Test if MAC address is already stored in settings
 	sensor := sensorExists(MAC)
@@ -135,10 +123,9 @@ func pairDeviceConnected(MAC [6]byte) bool {
 	return true
 }
 
-// Called on device disconnect, removes from pending list and notifies GUI
 func pairDeviceDisconnected(MAC [6]byte) bool {
-	_, ok := state.requested[MAC] // Get the request for this MAC address
-	if ok { // If the device was pending pairing, remove it from the list and notify GUI
+	_, ok := state.requested[MAC]
+	if ok {
 		delete(state.requested, MAC)
 		out.Broadcast("PAIR-DEVICE-DISCONNECTED: " + model.MacToString(MAC))
 	}
@@ -147,10 +134,9 @@ func pairDeviceDisconnected(MAC [6]byte) bool {
 	return true
 }
 
-// Device writes out what sensors are on board 
-// and what data types it can collect. This is the first step in pairing
+// Device writes out what sensors are on board
 func pairReceiveCapabilities(MAC [6]byte, data []byte) bool {
-	if sensorExists(MAC) != nil { // If the device is already paired, ignore the capabilities
+	if sensorExists(MAC) != nil {
 		return true
 	}
 
@@ -172,7 +158,6 @@ func pairReceiveCapabilities(MAC [6]byte, data []byte) bool {
 
 	}
 
-	// Check that the data is the expected length
 	if len(data) != 6 {
 		out.Logger.Println("pairReceiveCapabilities expect data with 6 bytes, received", len(data), "bytes instead")
 		return false
@@ -195,17 +180,14 @@ func pairReceiveCapabilities(MAC [6]byte, data []byte) bool {
 			req.dataTypes = append(req.dataTypes, name)
 		}
 	}
-	// Save collection capacity and model
 	req.collectionCapacity = binary.LittleEndian.Uint32(data[1:5])
 
-	// Check if the model is known, otherwise mark as unknown
 	if model, ok := model.SENSOR_MODELS[data[5]]; ok {
 		req.announcedModel = model
 	} else {
 		req.announcedModel = "unknown"
 	}
 
-	// Mark that the device has announced its sensors and capabilities
 	req.announcedSensors = true
 	state.requested[MAC] = req
 
@@ -216,10 +198,9 @@ func pairReceiveCapabilities(MAC [6]byte, data []byte) bool {
 }
 
 // see protocol.md to understand what is going on here
-/* Completes application registration by adding the sensor, 
-removing its pending request, and broadcasting pairing success */
+// Triggered by sensor to indicate pair done. Remove from pending list
+// and notify sensor to collect gateway data
 func pairConfirmation(mac [6]byte) {
-	// Check if the device is in the requested list, if not, log an error and return
 	if _, exists := state.requested[mac]; !exists {
 		out.Logger.Println("ERR:Device does not exist")
 		return
@@ -259,7 +240,6 @@ func Pair(mac [6]byte) {
 	pairConfirmation(mac)
 }
 
-// TODO: implement this function to disconnect a device by its MAC address
 func DisconnectDevice(mac [6]byte) {
 	//adapter.
 }
