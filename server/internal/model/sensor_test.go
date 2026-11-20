@@ -31,5 +31,17 @@ func TestLoadSensorsFirstRun(t *testing.T) {
 	if len(Sensors) != 0 {
 		t.Fatal("expected sensor number 0, but got", len(Sensors))
 	}
+}
 
+func TestUnknownDataType(t *testing.T) {
+	sensor := Sensor{
+		CollectionCapacity: 1000,
+		Settings: map[string]settings{
+			"banana": {SamplingFrequency: 10, SamplingDuration: 1},
+		},
+	}
+	err := isExceedingCollectionCapacity(&sensor, "sampling_frequency", 20, "banana")
+	if err == nil {
+		t.Error("expected an error for an unknown data type")
+	}
 }

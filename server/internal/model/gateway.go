@@ -43,7 +43,7 @@ func LoadSettings(gateway *Gateway, fileName string) error {
 		return err
 	}
 
-	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0777)
+	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0755)
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,6 @@ func TestGateway(gateway *Gateway) error {
 // }
 
 // saveSettings writes the gateway's settings to fileName in the config folder.
-// BUG: 0777 lets any user on the computer read the password; 0600 would be safer.
 func saveSettings(gateway *Gateway, fileName string) error {
 	if gateway == nil {
 		return errors.New("gateway is nil")
@@ -158,10 +157,10 @@ func saveSettings(gateway *Gateway, fileName string) error {
 		return err
 	}
 
-	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0777)
+	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0755)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(path.Join(configPath, "ss_machmos", fileName), jsonStr, 0777)
+	return os.WriteFile(path.Join(configPath, "ss_machmos", fileName), jsonStr, 0600)
 }

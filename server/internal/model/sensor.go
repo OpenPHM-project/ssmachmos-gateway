@@ -203,7 +203,7 @@ func LoadSensors() error {
 		return err
 	}
 
-	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0777)
+	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0755)
 	if err != nil {
 		return err
 	}
@@ -495,7 +495,6 @@ func getCollectionSize(sensor *Sensor) int {
 
 // isExceedingCollectionCapacity returns an error if a new frequency or duration
 // would make the recording too big for the sensor's storage.
-// BUG: if dataType is not in DATA_SIZE, sizeOfData is 0 and the division crashes.
 func isExceedingCollectionCapacity(sensor *Sensor, setting string, newSettingValue int, dataType string) error {
 	if dataType == "temperature" {
 		return nil
@@ -507,6 +506,9 @@ func isExceedingCollectionCapacity(sensor *Sensor, setting string, newSettingVal
 	}
 
 	sizeOfData := DATA_SIZE[dataType]
+	if sizeOfData == 0 {
+		return errors.New("unknown data type: " + dataType)
+	}
 	var thisFactor int
 	var otherFactor int
 	if setting == "sampling_frequency" {
@@ -532,7 +534,7 @@ func GetConfigDir() (string, error) {
 		return "", err
 	}
 
-	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0777)
+	err = os.MkdirAll(path.Join(configPath, "ss_machmos"), 0755)
 	if err != nil {
 		return "", err
 	}
@@ -543,7 +545,6 @@ func GetConfigDir() (string, error) {
 // saveSensors writes the Sensors list to sensors.json.
 // OUT OF DATE: the old comment below says it takes input, but it takes none.
 // Only reason we take as input is because we can't import server ourselves
-// BUG: 0777 lets any user on the computer edit the file; 0644 would be safer.
 func saveSensors() error {
 	if Sensors == nil {
 		return errors.New("sensors is nil")
@@ -559,7 +560,7 @@ func saveSensors() error {
 		return err
 	}
 
-	return os.WriteFile(path.Join(confDir, SENSORS_FILE), jsonStr, 0777)
+	return os.WriteFile(path.Join(confDir, SENSORS_FILE), jsonStr, 0644)
 }
 
 // LoadSensorHistory reads sensor_history.json into SensorHistory at startup.
@@ -583,7 +584,6 @@ func LoadSensorHistory() error {
 }
 
 // saveSensorHistory writes SensorHistory to sensor_history.json.
-// BUG: 0777 lets any user on the computer edit the file; 0644 would be safer.
 func saveSensorHistory() error {
 	confDir, err := GetConfigDir()
 	if err != nil {
@@ -594,5 +594,5 @@ func saveSensorHistory() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path.Join(confDir, SENSOR_HISTORY_FILE), jsonStr, 0777)
+	return os.WriteFile(path.Join(confDir, SENSOR_HISTORY_FILE), jsonStr, 0644)
 }
