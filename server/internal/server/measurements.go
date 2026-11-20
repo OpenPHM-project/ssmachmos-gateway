@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/jukuly/ss_machmos/server/internal/model"
@@ -27,6 +28,9 @@ type UnsentDataError struct {
 // Tracks unsent upload records in memory for reporting to the client.
 // Records are not removed from this slice after successful retries.
 var unsentData []UnsentDataError = []UnsentDataError{}
+
+// Only one retry can run at a time, so a file isn't uploaded twice.
+var retryLock sync.Mutex
 
 // The leading 0 means these permission values are written in octal.
 // Directory execute permission allows traversal into the directory.
@@ -158,7 +162,8 @@ func sendMeasurements(jsonData []byte, gateway *model.Gateway) (*http.Response, 
 // and notifies the GUI. Uses the supplied timestamp to name the file.
 // If the file can't be written (e.g. disk full), returns the error and records nothing.
 func saveUnsentMeasurements(data []byte, timestamp time.Time) error {
-
+	retryLock.Lock()
+	defer retryLock.Unlock()
 	err := os.WriteFile(path.Join(unsentDataDir(), timestamp.String()+".json"), data, filePermCode)
 
 	if err != nil {
@@ -175,6 +180,7 @@ func saveUnsentMeasurements(data []byte, timestamp time.Time) error {
 	out.Broadcast("UPLOAD-FAILED")
 
 	return nil
+
 }
 
 // Saves an archived copy of the measurements in sent_data,
@@ -197,6 +203,8 @@ func saveDebugMeasurements(transmission Transmission) error {
 // These records contain timestamps rather than measurement data and are not
 // removed after successful retries or reconstructed from disk here.
 func PendingUploads() []UnsentDataError {
+	retryLock.Lock()
+	defer retryLock.Unlock()
 	return unsentData
 }
 
@@ -204,6 +212,9 @@ func PendingUploads() []UnsentDataError {
 // After a successful upload, attempts to move the original file into sent_data.
 // Failed uploads remain in unsent_data for future retries.
 func sendUnsentMeasurements() {
+	retryLock.Lock()
+	defer retryLock.Unlock()
+
 	// List the entries in the unsent_data directory.
 	files, err := os.ReadDir(unsentDataDir())
 	if err != nil {
