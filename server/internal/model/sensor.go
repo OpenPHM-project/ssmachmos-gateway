@@ -252,7 +252,6 @@ func RemoveSensor(mac [6]byte) error {
 
 // getDefaultSensor creates a new sensor with default settings for each type it supports.
 // OUT OF DATE: the publicKey parameter is from the old RSA design.
-// BUG: flux gets no default settings.
 func getDefaultSensor(mac [6]byte, types []string, collectionCapacity uint32 /*, publicKey *rsa.PublicKey*/) Sensor {
 	sensor := Sensor{
 		Mac:                     mac,
@@ -287,6 +286,12 @@ func getDefaultSensor(mac [6]byte, types []string, collectionCapacity uint32 /*,
 				SamplingFrequency: 22110, // about 22 kHz default
 				SamplingDuration:  1,
 			}
+		case "flux":
+			sensor.Settings["flux"] = settings{
+				Active:            false,
+				SamplingFrequency: 2000, // TODO: confirm with hardware
+				SamplingDuration:  1,
+			}
 		}
 	}
 
@@ -306,7 +311,6 @@ func AddSensor(mac [6]byte, types []string, collectionCapacity uint32) error {
 
 // SettingsBytes packs the sensor's settings into the bytes sent to it over Bluetooth.
 // Layout: active (1) + MAC (6) + sleep seconds (4) + 8 bytes per measurement type.
-// BUG: flux settings are skipped as an "unknown data type".
 func (sensor *Sensor) SettingsBytes() []byte {
 	response := []byte{}
 	if sensor.DeviceActive {
@@ -325,7 +329,7 @@ func (sensor *Sensor) SettingsBytes() []byte {
 		} else {
 			active = 0x00
 		}
-		// Type codes the sensor expects: 0x00 vibration, 0x01 audio, 0x02 temperature.
+		// Type codes the sensor expects: 0x00 vibration, 0x01 audio, 0x02 temperature, 0x03 flux
 		switch dataType {
 		case "vibration":
 			// 1 + 1 + 4 + 2 = 8
@@ -341,6 +345,11 @@ func (sensor *Sensor) SettingsBytes() []byte {
 			// Padded with zeros so every type takes 8 bytes.
 			// 							1	  2       3		4	  5	    6	  7     8
 			response = append(response, 0x02, active, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+		case "flux":
+			// 1 + 1 + 4 + 2 = 8
+			response = append(response, 0x03, active)
+			response = binary.LittleEndian.AppendUint32(response, settings.SamplingFrequency)
+			response = binary.LittleEndian.AppendUint16(response, settings.SamplingDuration)
 		default:
 			out.Logger.Printf("%s [%s]: Parsing unknown data type %s", sensor.Name, MacToString(sensor.Mac), dataType)
 		}
@@ -351,7 +360,6 @@ func (sensor *Sensor) SettingsBytes() []byte {
 
 // UpdateSensorSetting changes one setting on a sensor and saves the file.
 // Settings are named like "name", "auto" (reset to defaults) or "vibration_sampling_frequency".
-// BUG: "flux_..." settings are rejected as an invalid data type.
 func UpdateSensorSetting(mac [6]byte, setting string, value string) error {
 	if Sensors == nil {
 		return errors.New("sensors is nil")
@@ -420,7 +428,7 @@ func UpdateSensorSetting(mac [6]byte, setting string, value string) error {
 	}
 
 	dataType := settingParts[0]
-	if dataType != "vibration" && dataType != "temperature" && dataType != "audio" {
+	if dataType != "vibration" && dataType != "temperature" && dataType != "audio" && dataType != "flux" {
 		return errors.New("invalid setting data type")
 	}
 	setting = strings.Join(settingParts[1:], "_")
