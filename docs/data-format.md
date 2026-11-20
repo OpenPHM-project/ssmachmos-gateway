@@ -4,7 +4,7 @@ Reference for the measurement header, sensor payloads, and JSON uploaded to Open
 
 ## 1. Header
 
-The gateway reads an **8-byte header** describing the incoming measurement data.
+The current gateway parses the first **8 bytes** of the transmission header.
 
 | Byte positions | Size | Meaning | Encoding |
 |---|---|---|---|
@@ -12,6 +12,8 @@ The gateway reads an **8-byte header** describing the incoming measurement data.
 | 4–7 | 4 bytes | Sampling frequency in Hz (samples per second) | Unsigned 32-bit, little endian |
 
 The **measurement payload** contains the actual sensor readings as bytes. For example, 100 vibration samples × 6 bytes = **600 payload bytes**, excluding the header.
+
+**Firmware version difference:** The newer transmitter in `include/ble_impl.hpp` of MacMos-Firmware builds a 16-byte header: 4 bytes for payload size, 4 bytes for sampling frequency, and 8 bytes for a timestamp. The inspected gateway only parses the first 8 bytes and uses its own receive time. Confirm which firmware version is running on the device.
 
 ## 2. Measurement/Sensor Payloads
 
@@ -69,11 +71,20 @@ Then calculate temperature in °C:
 
 | Property | Format |
 |---|---|
-| Bytes per sample | 2, per task specification |
-| Encoding | Signedness and byte order not yet confirmed |
-| Conversion | Not implemented |
-| Output unit | Not yet confirmed |
-| Gateway handling | No flux conversion branch in `handleData()`; treated as an unknown data type |
+| Bytes per sample | 2 |
+| Layout | Consecutive samples, each occupying 2 bytes |
+| Encoding | Signed 16-bit integer (`int16_t`); transmitted byte order still needs confirmation |
+| Conversion | Firmware stores raw ADC readings. Conversion to mT is not implemented in the gateway and still needs confirmation |
+| Output unit | Raw ADC counts before conversion; intended physical quantity is magnetic flux density |
+| Samples per collection | Sampling duration × configured sampling frequency |
+
+**Hardware:** DRV425 fluxgate with a ±2 mT range, read through an ADS1120 ADC. The ADC supports a maximum sampling rate of 2,000 samples per second; this does not establish the actual recording rate.
+
+**Gateway handling:** No flux conversion branch in `handleData()`; treated as an unknown data type.
+
+**Firmware findings:** `fluxData_t` is defined as `int16_t`, and `SampleFlux()` fills an array with ADC readings. The raw-memory approach suggests little-endian encoding on the configured ESP32-C3, but the flux transmission path needs verification.
+
+**Sources:** Thesis, sections 4.1.5–4.1.6; `MachMo-Firmware/include/config/machmo.h`; `MachMo-Firmware/src/machmo/adc.cpp`.
 
 ## 3. Upload JSON
 
@@ -126,7 +137,8 @@ This represents one reading of **25°C**. The sampling frequency is illustrative
 
 - **Sample availability:** No sensor sample collected; only the repository was available.
 - **Audio:** Confirm the sensor's byte order against firmware or a known sample.
-- **Flux:** Confirm the stated 2-byte sample size, signedness, byte order, conversion, and output unit.
+- **Flux:** Signed 16-bit samples and multi-sample collection are confirmed in the inspected firmware. Confirm transmitted byte order, the actual sampling rate, and the conversion from raw ADC readings to mT.
+- **Firmware version:** The flux path calls an older four-argument `TransmitFromCacheToService()`, while the available implementation accepts a `Measurement` object. Confirm the working branch or commit deployed on the device before treating this snapshot as the final transmission specification.
 - **Future validation:** Collect a `.bin` file from `/tmp/ss_machmos/debug_data/` on the gateway machine. These files contain measurement payload bytes **without the header**. Record the sensor model, measurement type, and sampling frequency separately.
 
 ## Source References
