@@ -209,10 +209,14 @@ func LoadSensors() error {
 	}
 
 	jsonStr, err := os.ReadFile(path.Join(configPath, "ss_machmos", SENSORS_FILE))
+	if errors.Is(err, os.ErrNotExist) {
+		Sensors = []Sensor{} // sets the gateway list to an empty list
+		return nil           // Load sensor finsihed fine no error
+	}
 	if err != nil {
-		//sensors = make([]Sensor, 0)
 		return err
 	}
+
 	var newSensors []Sensor
 	err = json.Unmarshal(jsonStr, &newSensors)
 	if err != nil {
