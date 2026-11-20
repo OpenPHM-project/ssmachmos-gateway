@@ -120,8 +120,12 @@ func sendMeasurements(jsonData []byte, gateway *model.Gateway) (*http.Response, 
 	// Send the JSON request body to the gateway's configured HTTP endpoint.
 	resp, err := http.Post(gateway.HTTPEndpoint, "application/json", bytes.NewBuffer([]byte(json)))
 
+	if err != nil {
+		return nil, err
+	}
+
 	// After a successful upload, archive the measurements and notify the client.
-	if err == nil && resp.StatusCode == http.StatusOK {
+	if resp.StatusCode == http.StatusOK {
 		err := archiveMeasurements(jsonData, time.Now())
 		if err != nil {
 			out.Logger.Println(err.Error())
@@ -130,9 +134,6 @@ func sendMeasurements(jsonData []byte, gateway *model.Gateway) (*http.Response, 
 		// The upload succeeded even if saving the archived copy failed.
 		out.Broadcast("UPLOAD-SUCCESS")
 	}
-
-	// TODO: Check for a request error or nil response before accessing StatusCode.
-	// A failed HTTP request can leave resp nil, causing this check to panic.
 
 	// Notify the client if the endpoint rejects the gateway credentials.
 	if resp.StatusCode == http.StatusUnauthorized {
