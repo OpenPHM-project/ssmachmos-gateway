@@ -1,3 +1,4 @@
+/// Main entry point for the Flutter GUI application, establishing global state providers, app themes, and root navigation tabs.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ss_machmos_gui/bluetooth.dart';
@@ -9,11 +10,13 @@ import 'package:ss_machmos_gui/sensors.dart';
 import 'package:ss_machmos_gui/status.dart';
 import 'package:ss_machmos_gui/utils.dart';
 
+/// Initializes the application and wraps the root widget with the Connection state provider.
 void main() {
   // Global state because why not
   runApp(ChangeNotifierProvider(create: (context) => Connection(), child: const MainApp()));
 }
 
+/// Configures global application themes, typography, and styles.
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
 
@@ -58,6 +61,7 @@ class MainApp extends StatelessWidget {
   }
 }
 
+/// Manages the primary navigation tab structure, connection error states, and toast notification queues.
 class AppRoot extends StatelessWidget {
   const AppRoot({super.key});
 
@@ -126,6 +130,7 @@ class AppRoot extends StatelessWidget {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Can't call this in build
       while (conn.toastQueue.isNotEmpty) {
+        // BUG: Displaying multiple queued toast messages in a single frame can cause them to overlap visually.
         showMessage(conn.toastQueue.removeFirst(), context);
       }
     });

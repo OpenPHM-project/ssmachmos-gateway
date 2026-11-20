@@ -1,3 +1,5 @@
+// Package api lets the CLI and the GUI control the gateway.
+// It listens on a Unix socket (/run/ss_machmos.sock), runs each command, and sends back the answer.
 package api
 
 import (
@@ -13,9 +15,16 @@ import (
 	"github.com/jukuly/ss_machmos/server/internal/server"
 )
 
+// connectionsAlive lists every CLI/GUI currently connected.
+// OUT OF DATE: only the old Broadcast below used this; out.Broadcast replaced it.
 var connectionsAlive []*net.Conn
+
+// shouldExit tells Start to stop accepting connections.
+// OUT OF DATE: STOP exits the program right away, so this is never checked in time.
 var shouldExit bool = false
 
+// handleCommand runs one command (like "LIST" or "PAIR-ACCEPT <mac>") and returns the reply.
+// Replies look like "OK:<COMMAND>:<result>" or "ERR:<COMMAND>:<reason>".
 func handleCommand(command string, conn *net.Conn) string {
 	parts := strings.Split(command, " ")
 
@@ -62,6 +71,7 @@ func handleCommand(command string, conn *net.Conn) string {
 		return "OK:LIST-PENDING-UPLOADS:" + res
 	case "VIEW":
 		if len(parts) < 2 {
+			// BUG: missing "VIEW:" in the reply, so it doesn't match the usual "ERR:<COMMAND>:" format.
 			return "ERR:not enough arguments"
 		}
 		res, err := view(parts[1])
@@ -85,6 +95,7 @@ func handleCommand(command string, conn *net.Conn) string {
 	case "PAIR-DISABLE":
 		// Remove connection from update list
 		delete(out.PairingConnections, conn)
+		// Only turn pairing off when no one else is still waiting to pair.
 		if len(out.PairingConnections) == 0 {
 			pairDisable()
 		}
@@ -121,6 +132,7 @@ func handleCommand(command string, conn *net.Conn) string {
 			return "ERR:SET-GATEWAY-HTTP-ENDPOINT:not enough arguments"
 		}
 		var err error
+		// "default" means the OpenPHM address.
 		if parts[1] == "default" {
 			err = model.SetGatewayHTTPEndpoint(server.Gateway, server.DEFAULT_GATEWAY_HTTP_ENDPOINT)
 		} else {
@@ -135,6 +147,7 @@ func handleCommand(command string, conn *net.Conn) string {
 		if len(parts) < 2 {
 			return "ERR:SET-GATEWAY-ID:not enough arguments"
 		}
+		// Rejoin the parts so an id can contain spaces.
 		err := model.SetGatewayId(server.Gateway, strings.Join(parts[1:], " "))
 		if err != nil {
 			out.Logger.Println("Error:", err)
@@ -143,8 +156,10 @@ func handleCommand(command string, conn *net.Conn) string {
 		return "OK:SET-GATEWAY-ID:"
 	case "SET-GATEWAY-PASSWORD":
 		if len(parts) < 2 {
+			// BUG: missing "SET-GATEWAY-PASSWORD:" in the reply.
 			return "ERR:not enough arguments"
 		}
+		// Rejoin the parts so a password can contain spaces.
 		err := model.SetGatewayPassword(server.Gateway, strings.Join(parts[1:], " "))
 		if err != nil {
 			out.Logger.Println("Error:", err)
@@ -159,6 +174,7 @@ func handleCommand(command string, conn *net.Conn) string {
 		}
 		return "OK:TEST-GATEWAY"
 	case "RELOAD-SENSOR-SETTINGS":
+		// BUG: LoadSensors' error is ignored, so this replies OK even if loading failed.
 		model.LoadSensors()
 		return "OK:RELOAD-SENSOR-SETTINGS:"
 	case "SET-SENSOR-SETTINGS":
@@ -168,10 +184,11 @@ func handleCommand(command string, conn *net.Conn) string {
 		mac, err := model.StringToMac(parts[1])
 		if err != nil {
 			out.Logger.Println("Error:", err)
+			// BUG: typo "SET-SENSOR-SETTING" (missing S) in the reply.
 			return "ERR:SET-SENSOR-SETTING:" + err.Error()
 		}
-		// Parts is split by spaces
-		// For each part we call UpdateSensorSetting
+		// Settings come as pairs after the MAC: "<name> <value> <name> <value> ..."
+		// BUG: if one setting fails, the ones before it are already saved.
 		nbrOfSettings := (len(parts) - 2) / 2
 		for i := 0; i < nbrOfSettings; i++ {
 			// FIXME: Replace this with JSON instead
@@ -181,6 +198,7 @@ func handleCommand(command string, conn *net.Conn) string {
 				return "ERR:SET-SENSOR-SETTINGS:" + err.Error()
 			}
 		}
+		// Tell connected sensors to fetch their new settings.
 		server.TriggerSettingCollection()
 		return "OK:SET-SENSOR-SETTINGS:"
 	case "ADD-LOGGER":
@@ -191,6 +209,7 @@ func handleCommand(command string, conn *net.Conn) string {
 		delete(out.LoggingConnections, conn)
 		return "OK:REMOVE-LOGGER:"
 	case "STOP":
+		// BUG: stop() exits the program right away, so the CLI never gets a reply.
 		stop()
 		// then exit loop
 		shouldExit = true
@@ -200,7 +219,9 @@ func handleCommand(command string, conn *net.Conn) string {
 	return "ERR:unknown"
 }
 
-// Handle command and write response
+// handleConnection reads commands from one CLI/GUI connection and writes back each reply.
+// Each command and reply ends with a zero byte (\x00).
+// BUG: the slices.Delete result is thrown away, so closed connections are never removed from connectionsAlive.
 func handleConnection(conn *net.Conn) {
 	defer (*conn).Close()
 
@@ -231,6 +252,7 @@ func handleConnection(conn *net.Conn) {
 	}
 }
 
+// OUT OF DATE: replaced by out.Broadcast in out/out.go.
 // Send a message to all alive connections
 // func Broadcast(msg string) {
 // 	for _, conn := range connectionsAlive {
@@ -239,12 +261,14 @@ func handleConnection(conn *net.Conn) {
 // 	out.Logger.Println(msg)
 // }
 
-// Start listening to unix socket
-// any commands received here would be sent to handleConnection and then handleCommand
+// Start opens the Unix socket and handles each new CLI/GUI connection in the background.
+// It runs until the program stops.
 // Commands are zero terminated. Unix sockets are bidirectional
 // https://beej.us/guide/bgipc/html/index-wide.html#unixsock
+// BUG: anyone allowed to open /run/ss_machmos.sock can control the gateway (no permission check).
 func Start() error {
 	socketPath := "/run/ss_machmos.sock"
+	// Delete any socket file left over from a previous run, or Listen fails.
 	if err := os.RemoveAll(socketPath); err != nil {
 		out.Logger.Println("Error:", err)
 		return err

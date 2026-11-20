@@ -1,14 +1,25 @@
+# systemd service that starts the ssmachmos gateway server in the background.
+# It needs the Bluetooth service, because the sensors talk to the gateway over Bluetooth.
+
 [Unit]
 Description=ssmachmos Sensor Gateway
+# The page with more information about the project.
 Documentation=https://openphm.org
 
 # BindsTo means this service demands bluez and dies with bluez
+# BUG: there is no After=bluetooth.service, so this service can start before Bluetooth is ready.
 BindsTo=bluetooth.service
 
 [Service]
+# systemd finds the program by name in its standard folders, such as /usr/local/bin where install.sh puts it.
+# BUG: if install.sh used another INSTALL_PATH, systemd will not find the program.
+# Runs the gateway server.
 ExecStart=ssmachmos serve
+# Runs when the service is stopped, so the server can shut down cleanly.
 ExecStop=ssmachmos stop
+# Starts the server again if it crashes or exits with an error, but not if it was stopped on purpose.
 Restart=on-failure
 
 [Install]
+# Makes the service start by itself on boot after "systemctl enable".
 WantedBy=default.target
