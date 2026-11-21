@@ -36,6 +36,13 @@ var unsentData []UnsentDataError = []UnsentDataError{}
 const dirPermCode os.FileMode = 0775  // rwxrwxr-x
 const filePermCode os.FileMode = 0644 // rw-r--r--
 
+const adcReferenceVolts = 2.048      // 	TI ADS1120 datasheet, internal voltage reference of 2.048 V.
+const adcGain = 1                    // 	Gain of 1 selected for the Week 5 conversion per Simon’s recommendation.
+const adcCountsPerFullScale = 32768  // 	The ticket’s signed 16-bit ADC conversion uses 2¹⁵ = 32,768 counts per full-scale magnitude.
+const fluxAmpsPerMilliTesla = 0.0122 //	TI DRV425 datasheet, nominal sensitivity of 12.2 mA/mT, expressed here as 0.0122 A/mT.
+const fluxShuntOhms = 100            // 	TI DRV425EVM User’s Guide, SLOU410B, specifies a 100 Ω shunt at R1 on the evaluation board.
+const fluxAmplifierGain = 4          // 	TI DRV425 datasheet, nominal shunt-sense amplifier gain of 4 V/V.
+
 // Returns the directory path for storing application data, creating it if needed.
 func dataDir() string {
 	// Get the user's cache directory, falling back to the temporary directory
@@ -208,6 +215,8 @@ func sendUnsentMeasurements() {
 			continue
 		}
 
+		resp.Body.Close()
+
 		// After HTTP 200 OK, move the original file to sent_data for debugging.
 		// sendMeasurements also saves a separate archived copy with a new timestamp.
 		// The result of this move is currently not checked.
@@ -235,13 +244,13 @@ func parseTemperatureData(data int16) (float64, error) {
 		const B = -5.775e-7
 
 		// Solve the Callendar-Van Dusen equation for resistance at or above 1000 ohms.
-		sqrt := math.Sqrt(math.Pow(A, 2) - 4*B*(1-rtd_resistance/r_0))
+		value := math.Pow(A, 2) - 4*B*(1-rtd_resistance/r_0)
 
-		// TODO: Check the expression before taking its square root, or check for NaN.
-		// A negative square-root input produces NaN, which this comparison does not catch.
-		if sqrt < 0 {
-			return 0, errors.New("negative square root")
+		if value < 0 || math.IsNaN(value) {
+			return 0, errors.New("negative or impossible square root")
 		}
+		sqrt := math.Sqrt(value)
+
 		return (-A + sqrt) / (2 * B), nil
 	} else {
 		// Use a quadratic approximation for resistance below 1000 ohms.
@@ -249,12 +258,18 @@ func parseTemperatureData(data int16) (float64, error) {
 		const B = 3.907359803
 		const C = 999.9979
 
-		sqrt := math.Sqrt(math.Pow(B, 2) - 4*A*(C-rtd_resistance))
+		value := math.Pow(B, 2) - 4*A*(C-rtd_resistance)
 
-		// TODO: This comparison also does not detect a NaN square-root result.
-		if sqrt < 0 {
-			return 0, errors.New("negative square root")
+		if value < 0 || math.IsNaN(value) {
+			return 0, errors.New("negative or impossible square root")
 		}
+		sqrt := math.Sqrt(value)
 		return (-B + sqrt) / (2 * A), nil
 	}
+}
+
+func parseFluxData(raw int16) float64 {
+	volts := float64(raw) * adcReferenceVolts / (adcGain * adcCountsPerFullScale)
+	millitesla := volts / (fluxAmpsPerMilliTesla * fluxShuntOhms * fluxAmplifierGain)
+	return millitesla
 }

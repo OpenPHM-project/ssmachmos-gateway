@@ -270,7 +270,7 @@ func handleData(dataType string, _ bluetooth.Connection, address string, _mtu in
 		return
 	}
 
-	// TODO: Close the response body on both successful and unsuccessful responses.
+	defer resp.Body.Close()
 
 	// Treat any HTTP status other than 200 as an unsuccessful upload.
 	if resp.StatusCode != 200 {
@@ -279,7 +279,6 @@ func handleData(dataType string, _ bluetooth.Connection, address string, _mtu in
 		// Read and log the response body to help diagnose the failure.
 		// TODO: ContentLength can be -1, and one Read may not return the whole body.
 		body := make([]byte, resp.ContentLength)
-		defer resp.Body.Close()
 		resp.Body.Read(body)
 		out.Logger.Println(string(body))
 
@@ -492,7 +491,7 @@ func handleDebugData(address string, value []byte) {
 	}
 }
 
-// WIP -> Conversion formula is missing
+// Decodes flux samples into millitesla
 func handleFluxData(transmitData Transmission) []map[string]any {
 	measurements := []map[string]any{}
 
@@ -505,12 +504,12 @@ func handleFluxData(transmitData Transmission) []map[string]any {
 
 	sampleCount := len(rawData) / 2
 
-	decodedReadings := make([]int16, sampleCount)
+	decodedReadings := make([]float64, sampleCount)
 
 	for i := 0; i < len(rawData); i += 2 {
 		// little-endian byte order still needs confirmation
-		decodedReadings[i/2] = int16(rawData[i+1])<<8 | int16(rawData[i])
-
+		raw := int16(rawData[i+1])<<8 | int16(rawData[i])
+		decodedReadings[i/2] = parseFluxData(raw)
 	}
 	measurements = append(measurements,
 		map[string]any{
@@ -519,7 +518,7 @@ func handleFluxData(transmitData Transmission) []map[string]any {
 			"measurement_type":   transmitData.dataType,
 			"sampling_frequency": transmitData.samplingFrequency,
 
-			// These are raw flux ADC counts; conversion to mT is pending
+			// Values are in millitesla, converted from the raw ADC readings.
 			"raw_data": decodedReadings,
 		},
 	)

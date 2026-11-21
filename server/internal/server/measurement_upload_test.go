@@ -1,10 +1,10 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -162,7 +162,8 @@ func TestSendMeasurementsTimeout(t *testing.T) {
 	}
 	// Check that the error returned is a context deadline exceeded error, indicating that the request timed out as expected.
 	// If the error is not a deadline exceeded error, the test fails with a fatal error message.
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected a deadline exceeded error, got %v", err)
+	var timeoutErr net.Error
+	if !errors.As(err, &timeoutErr) || !timeoutErr.Timeout() {
+		t.Fatalf("expected an HTTP timeout, got %v", err)
 	}
 }
