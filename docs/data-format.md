@@ -13,7 +13,7 @@ The current gateway parses the first **8 bytes** of the transmission header.
 
 The **measurement payload** contains the actual sensor readings as bytes. For example, 100 vibration samples × 6 bytes = **600 payload bytes**, excluding the header.
 
-**Firmware version difference:** The newer transmitter in `include/ble_impl.hpp` of MacMos-Firmware builds a 16-byte header: 4 bytes for payload size, 4 bytes for sampling frequency, and 8 bytes for a timestamp. The inspected gateway only parses the first 8 bytes and uses its own receive time. Confirm which firmware version is running on the device.
+**Firmware version difference:** The newer transmitter in `include/ble_impl.hpp` of MachMo-Firmware builds a 16-byte header: 4 bytes for payload size, 4 bytes for sampling frequency, and 8 bytes for a timestamp. The inspected gateway only parses the first 8 bytes and uses its own receive time. Confirm which firmware version is running on the device.
 
 ## 2. Measurement/Sensor Payloads
 
@@ -80,7 +80,7 @@ Then calculate temperature in °C:
 
 **Hardware:** DRV425 fluxgate with a ±2 mT range, read through an ADS1120 ADC. The ADC supports a maximum sampling rate of 2,000 samples per second; this does not establish the actual recording rate.
 
-**Gateway handling:** No flux conversion branch in `handleData()`; treated as an unknown data type.
+**Gateway handling:** `handleFluxData()` decodes each pair of bytes as a signed 16-bit little-endian ADC count. A valid transmission produces one measurement record containing the counts in sample order. The firmware byte order and the conversion to mT still need hardware confirmation.
 
 **Firmware findings:** `fluxData_t` is defined as `int16_t`, and `SampleFlux()` fills an array with ADC readings. The raw-memory approach suggests little-endian encoding on the configured ESP32-C3, but the flux transmission path needs verification.
 
@@ -104,12 +104,22 @@ The gateway sends an HTTP POST with an `application/json` body. The outer object
 |---|---|
 | `sensor_id` | Sensor's MAC address |
 | `time` | Gateway time when it received the transmission header |
-| `measurement_type` | `vibration`, `temperature`, or `audio` |
-| `sampling_frequency` | Sampling frequency from the header, in Hz |
+| `measurement_type` | `vibration`, `temperature`, `audio`, or `flux` |
+| `sampling_frequency` | Sampling frequency in Hz after the gateway applies the clock correction for this sensor and measurement type. |
 | `axis` | `x`, `y`, or `z`; present only for vibration |
-| `raw_data` | Array of decoded values: g for vibration, °C for temperature, or raw amplitude counts for audio |
+| `raw_data` | Array of decoded values: g for vibration, °C for temperature, raw amplitude counts for audio, or raw ADC counts for flux|
 
-Despite its name, `raw_data` contains decoded values, not the original bytes. A valid vibration transmission produces **three records**, one per axis. Valid temperature and audio transmissions each produce **one record**.
+Despite its name, `raw_data` contains decoded values, not the original bytes. A valid vibration transmission produces **three records**, one per axis. Valid temperature, audio and flux  transmissions each produce **one record**.
+
+### Sampling frequency correction
+
+The gateway calculates the uploaded frequency from the frequency in the transmission header:
+
+`uploaded_frequency_hz = header_frequency_hz × (1 + clock_correction_percent / 100)`
+
+A positive correction raises the uploaded frequency. A negative correction lowers it.
+For example, a 1,000 Hz header with a configured correction of −0.5% produces 995 Hz.
+Vibration records for X, Y, and Z all receive the same corrected frequency.
 
 ### Example: temperature upload
 
@@ -140,6 +150,7 @@ This represents one reading of **25°C**. The sampling frequency is illustrative
 - **Flux:** Signed 16-bit samples and multi-sample collection are confirmed in the inspected firmware. Confirm transmitted byte order, the actual sampling rate, and the conversion from raw ADC readings to mT.
 - **Firmware version:** The flux path calls an older four-argument `TransmitFromCacheToService()`, while the available implementation accepts a `Measurement` object. Confirm the working branch or commit deployed on the device before treating this snapshot as the final transmission specification.
 - **Future validation:** Collect a `.bin` file from `/tmp/ss_machmos/debug_data/` on the gateway machine. These files contain measurement payload bytes **without the header**. Record the sensor model, measurement type, and sampling frequency separately.
+- **Clock correction:** Vibration and audio currently default to 0%. The estimated clock errors are about 1.5% for vibration and 0.7% for audio. Confirm with hardware what frequency should be uploaded for a 1,000 Hz header for each type before setting the signed defaults.
 
 ## Source References
 
@@ -147,6 +158,6 @@ Paths are relative to the repository root.
 
 | File | Relevant functions or types |
 |---|---|
-| `server/internal/server/packetAssembling.go` | `savePacket()`, `handleData()`, `handleVibrationData()`, `handleTemperatureData()`, `handleAudioData()` |
+| `server/internal/server/packetAssembling.go` | `savePacket()`, `handleData()`, `handleVibrationData()`, `handleTemperatureData()`, `handleAudioData()`, `handleFluxData()`, `applyClockCorrection()`|
 | `server/internal/server/measurements.go` | `parseTemperatureData()`, `sendMeasurements()`, `saveDebugMeasurements()` |
 | `server/internal/model/gateway.go` | `RequestBody` |

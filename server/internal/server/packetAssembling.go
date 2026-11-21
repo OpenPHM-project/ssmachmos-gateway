@@ -248,6 +248,9 @@ func handleData(dataType string, _ bluetooth.Connection, address string, _mtu in
 		return
 	}
 
+	// Add a corrected sampling frequency to each measurement record.
+	applyClockCorrection(measurements, transmitData.samplingFrequency, sensor.Settings[dataType].ClockCorrectionPercent)
+
 	// Encode the converted measurement records as JSON.
 	jsonData, err := json.Marshal(measurements)
 	if err != nil {
@@ -521,4 +524,11 @@ func handleFluxData(transmitData Transmission) []map[string]any {
 		},
 	)
 	return measurements
+}
+
+func applyClockCorrection(measurements []map[string]any, headerFrequency uint32, correctionPercent float32) {
+	correctedFrequency := float64(headerFrequency) * (1 + float64(correctionPercent)/100)
+	for i := range measurements {
+		measurements[i]["sampling_frequency"] = correctedFrequency
+	}
 }

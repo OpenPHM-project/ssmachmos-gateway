@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"slices"
@@ -61,9 +62,10 @@ type SensorLastSeen struct {
 // settings holds the recording settings for one measurement type.
 // SamplingFrequency is in Hz and SamplingDuration is in seconds.
 type settings struct {
-	Active            bool   `json:"active"`
-	SamplingFrequency uint32 `json:"sampling_frequency"`
-	SamplingDuration  uint16 `json:"sampling_duration"`
+	Active                 bool    `json:"active"`
+	SamplingFrequency      uint32  `json:"sampling_frequency"`
+	SamplingDuration       uint16  `json:"sampling_duration"`
+	ClockCorrectionPercent float32 `json:"clock_correction_percent"` // How much the sensor's clock is off, as a percentage of its speed
 }
 
 // Sensor is everything the gateway remembers about one approved sensor.
@@ -272,9 +274,10 @@ func getDefaultSensor(mac [6]byte, types []string, collectionCapacity uint32 /*,
 		switch t {
 		case "vibration":
 			sensor.Settings["vibration"] = settings{
-				Active:            true,
-				SamplingFrequency: 8000, // 8 kHz default
-				SamplingDuration:  1,
+				Active:                 true,
+				SamplingFrequency:      8000, // 8 kHz default
+				SamplingDuration:       1,
+				ClockCorrectionPercent: 0.0, // default to no clock correction
 			}
 		case "temperature":
 			sensor.Settings["temperature"] = settings{
@@ -282,9 +285,10 @@ func getDefaultSensor(mac [6]byte, types []string, collectionCapacity uint32 /*,
 			}
 		case "audio":
 			sensor.Settings["audio"] = settings{
-				Active:            true,
-				SamplingFrequency: 22110, // about 22 kHz default
-				SamplingDuration:  1,
+				Active:                 true,
+				SamplingFrequency:      22110, // about 22 kHz default
+				SamplingDuration:       1,
+				ClockCorrectionPercent: 0.0, // default to no clock correction
 			}
 		case "flux":
 			sensor.Settings["flux"] = settings{
@@ -471,6 +475,17 @@ func UpdateSensorSetting(mac [6]byte, setting string, value string) error {
 
 		setting := sensor.Settings[dataType]
 		setting.SamplingDuration = uint16(intValue)
+		sensor.Settings[dataType] = setting
+	case "clock_correction_percent":
+		floatValue, err := strconv.ParseFloat(value, 32)
+		if err != nil || math.IsNaN(floatValue) || math.IsInf(floatValue, 0) {
+			return errors.New("invalid value for clock_correction_percent setting (must be a float and not NaN or Inf)")
+		}
+		setting, ok := sensor.Settings[dataType]
+		if !ok {
+			return fmt.Errorf("sensor does not support measurement type %q", dataType)
+		}
+		setting.ClockCorrectionPercent = float32(floatValue)
 		sensor.Settings[dataType] = setting
 	default:
 		return errors.New("setting " + setting + " doesn't exist")
