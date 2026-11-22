@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/jukuly/ss_machmos/server/internal/model"
@@ -30,6 +31,9 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 // Tracks unsent upload records in memory for reporting to the client.
 // Records are not removed from this slice after successful retries.
 var unsentData []UnsentDataError = []UnsentDataError{}
+
+// Only one retry can run at a time, so a file isn't uploaded twice.
+var retryLock sync.Mutex
 
 // The leading 0 means these permission values are written in octal.
 // Directory execute permission allows traversal into the directory.
@@ -87,6 +91,17 @@ func archivedDataDir() string {
 	return dir
 }
 
+// Creates the bad_data directory if needed and returns its path.
+// This directory holds unsent files that aren't valid JSON, so they stop being retried.
+func badDataDir() string {
+	dir := path.Join(dataDir(), "/bad_data/")
+	err := os.MkdirAll(dir, dirPermCode)
+	if err != nil {
+		out.Logger.Panic(err.Error())
+	}
+	return dir
+}
+
 // Creates the debug_data directory under the temporary directory if needed
 // and returns its path.
 func debugDataDir() string {
@@ -128,7 +143,7 @@ func sendMeasurements(jsonData []byte, gateway *model.Gateway) (*http.Response, 
 	}
 
 	// Send the JSON request body to the gateway's configured HTTP endpoint.
-	resp, err := httpClient.Post(gateway.HTTPEndpoint, "application/json", bytes.NewBuffer([]byte(json)))
+	resp, err := http.Post(gateway.HTTPEndpoint, "application/json", bytes.NewBuffer([]byte(json)))
 
 	if err != nil {
 		return nil, err
@@ -153,10 +168,19 @@ func sendMeasurements(jsonData []byte, gateway *model.Gateway) (*http.Response, 
 	return resp, err
 }
 
-// Records an unsent upload, notifies the GUI, and saves the measurement JSON
-// for a later retry. Uses the supplied timestamp to name the file.
-// The in-memory record and notification occur before the file write is attempted.
+// Saves the measurement JSON for a later retry, then records the unsent upload
+// and notifies the GUI. Uses the supplied timestamp to name the file.
+// If the file can't be written (e.g. disk full), returns the error and records nothing.
 func saveUnsentMeasurements(data []byte, timestamp time.Time) error {
+	retryLock.Lock()
+	defer retryLock.Unlock()
+	err := os.WriteFile(path.Join(unsentDataDir(), timestamp.String()+".json"), data, filePermCode)
+
+	if err != nil {
+
+		return err
+	}
+
 	unsentData = append(unsentData, UnsentDataError{
 		//Reason: "",
 		LastAttemptedUpload: timestamp,
@@ -164,7 +188,9 @@ func saveUnsentMeasurements(data []byte, timestamp time.Time) error {
 
 	// Notify the GUI that measurements could not be uploaded.
 	out.Broadcast("UPLOAD-FAILED")
-	return os.WriteFile(path.Join(unsentDataDir(), timestamp.String()+".json"), data, filePermCode)
+
+	return nil
+
 }
 
 // Saves an archived copy of the measurements in sent_data,
@@ -187,6 +213,8 @@ func saveDebugMeasurements(transmission Transmission) error {
 // These records contain timestamps rather than measurement data and are not
 // removed after successful retries or reconstructed from disk here.
 func PendingUploads() []UnsentDataError {
+	retryLock.Lock()
+	defer retryLock.Unlock()
 	return unsentData
 }
 
@@ -194,6 +222,9 @@ func PendingUploads() []UnsentDataError {
 // After a successful upload, attempts to move the original file into sent_data.
 // Failed uploads remain in unsent_data for future retries.
 func sendUnsentMeasurements() {
+	retryLock.Lock()
+	defer retryLock.Unlock()
+
 	// List the entries in the unsent_data directory.
 	files, err := os.ReadDir(unsentDataDir())
 	if err != nil {
@@ -202,28 +233,57 @@ func sendUnsentMeasurements() {
 	}
 
 	// Read and attempt to upload each saved measurement file.
-	for _, file := range files {
-		data, err := os.ReadFile(path.Join(unsentDataDir(), file.Name()))
+	for _, file := range files { // for each file (the _ throws away the index)
+		data, err := os.ReadFile(path.Join(unsentDataDir(), file.Name())) // Reads file's contents
 		if err != nil {
-			out.Logger.Println("Error:", err)
+			out.Logger.Println("Error:", err) // couldn't read it log and go to the next file
 			continue
 		}
 
-		resp, err := sendMeasurements(data, Gateway)
+		if !json.Valid(data) {
+			oldPath := path.Join(unsentDataDir(), file.Name())
+			newPath := path.Join(badDataDir(), file.Name())
+			err := os.Rename(oldPath, newPath)
+
+			if err != nil {
+				out.Logger.Println("Error:", err)
+			} else {
+				out.Logger.Println("Invalid JSON, moved to bad_data:", file.Name())
+			}
+			continue
+
+		}
+
+		resp, err := sendMeasurements(data, Gateway) // try to upload contents.
 		if err != nil {
-			out.Logger.Println("Error:", err)
+			out.Logger.Println("Error:", err) // upload failed the file stays for retry
 			continue
 		}
 
-		resp.Body.Close()
+		// Upload worked: move the file from unsent_data to sent_data.
+		// (sendMeasurements also saves its own archived copy with a new timestamp.)
+		if resp.StatusCode == http.StatusOK {
+			oldPath := path.Join(unsentDataDir(), file.Name())   // where the file is now, in unsent data
+			newPath := path.Join(archivedDataDir(), file.Name()) // where the file should go, in sent data
 
-		// After HTTP 200 OK, move the original file to sent_data for debugging.
-		// sendMeasurements also saves a separate archived copy with a new timestamp.
-		// The result of this move is currently not checked.
-		if resp.StatusCode == 200 {
-			os.Rename(path.Join(unsentDataDir(), file.Name()), path.Join(archivedDataDir(), file.Name()))
+			err := os.Rename(oldPath, newPath) // move the file, if that fails err holds the reason
+			if err != nil {
+				out.Logger.Println("Error:", err) // if there is error write it to the log
+			}
 		}
 	}
+
+	remaining, err := os.ReadDir(unsentDataDir())
+
+	if err != nil {
+		out.Logger.Println("Error:", err) // if there is error write it to the log
+		return
+	}
+
+	if len(remaining) == 0 {
+		unsentData = []UnsentDataError{}
+	}
+
 }
 
 // Converts a raw MachMo temperature reading into degrees Celsius.
@@ -267,6 +327,18 @@ func parseTemperatureData(data int16) (float64, error) {
 		return (-B + sqrt) / (2 * A), nil
 	}
 }
+
+// Every 5 minutes, retry uploading files left in unsent_data.
+func retryUnsentLoop() {
+
+	ticker := time.NewTicker(5 * time.Minute)
+
+	for range ticker.C {
+		sendUnsentMeasurements()
+	}
+
+}
+
 
 func parseFluxData(raw int16) float64 {
 	volts := float64(raw) * adcReferenceVolts / (adcGain * adcCountsPerFullScale)
