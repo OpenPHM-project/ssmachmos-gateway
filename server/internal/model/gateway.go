@@ -36,7 +36,6 @@ type RequestBody struct {
 }
 
 // LoadSettings reads the gateway's settings from fileName into gateway.
-// BUG: "gateway = &Gateway{}" only changes the local copy, so it doesn't reset anything on error.
 func LoadSettings(gateway *Gateway, fileName string) error {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
@@ -50,12 +49,12 @@ func LoadSettings(gateway *Gateway, fileName string) error {
 
 	jsonStr, err := os.ReadFile(path.Join(configPath, "ss_machmos", fileName))
 	if err != nil {
-		gateway = &Gateway{}
+		*gateway = Gateway{}
 		return err
 	}
 	err = json.Unmarshal(jsonStr, gateway)
 	if err != nil {
-		gateway = &Gateway{}
+		*gateway = Gateway{}
 		return err
 	}
 	return nil
