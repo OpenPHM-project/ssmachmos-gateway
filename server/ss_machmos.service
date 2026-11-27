@@ -7,8 +7,9 @@ Description=ssmachmos Sensor Gateway
 Documentation=https://openphm.org
 
 # BindsTo means this service demands bluez and dies with bluez
-# BUG: there is no After=bluetooth.service, so this service can start before Bluetooth is ready.
 BindsTo=bluetooth.service
+# After makes it wait until Bluetooth is ready.
+After=bluetooth.service
 
 [Service]
 # systemd finds the program by name in its standard folders, such as /usr/local/bin where install.sh puts it.
