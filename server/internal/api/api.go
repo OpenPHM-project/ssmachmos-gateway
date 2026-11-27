@@ -89,14 +89,19 @@ func handleCommand(command string, conn *net.Conn) string {
 		return "OK:PAIR-LIST:" + res
 	case "PAIR-ENABLE":
 		// Save this connection as someone interested in pairing info
+		out.PairingLock.Lock()
 		out.PairingConnections[conn] = true
+		out.PairingLock.Unlock()
 		pairEnable()
 		return "OK:PAIR-ENABLE:"
 	case "PAIR-DISABLE":
+		out.PairingLock.Lock()
 		// Remove connection from update list
 		delete(out.PairingConnections, conn)
+		remaining := len(out.PairingConnections)
+		out.PairingLock.Unlock()
 		// Only turn pairing off when no one else is still waiting to pair.
-		if len(out.PairingConnections) == 0 {
+		if remaining == 0 {
 			pairDisable()
 		}
 		return "OK:PAIR-DISABLE:"
@@ -202,11 +207,15 @@ func handleCommand(command string, conn *net.Conn) string {
 		server.TriggerSettingCollection()
 		return "OK:SET-SENSOR-SETTINGS:"
 	case "ADD-LOGGER":
+		out.LoggingLock.Lock()
 		out.LoggingConnections[conn] = true
+		out.LoggingLock.Unlock()
 		out.Logger.Println("Adding logger")
 		return "OK:ADD-LOGGER:"
 	case "REMOVE-LOGGER":
+		out.LoggingLock.Lock()
 		delete(out.LoggingConnections, conn)
+		out.LoggingLock.Unlock()
 		return "OK:REMOVE-LOGGER:"
 	case "STOP":
 		// BUG: stop() exits the program right away, so the CLI never gets a reply.
